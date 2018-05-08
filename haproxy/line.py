@@ -2,7 +2,7 @@
 from datetime import datetime
 
 import re
-
+import httpclfline
 
 # Example log line, to understand the regex below (truncated to fit into
 # 80 chars):
@@ -174,7 +174,10 @@ class Line(object):
     def is_https(self):
         """Returns True if the log line is a SSL connection. False otherwise.
         """
+        # I'm not even sure this is correct for either format...
         if ':443' in self.http_request_path:
+            return True
+        if '~' in self.frontend_name[-1]:
             return True
         return False
 
@@ -189,9 +192,20 @@ class Line(object):
         line = SYSLOG_REGEX.sub('', line)
         line = SYSLOG_NIXOS_REGEX.sub('', line)
         line = SYSLOG_HOST_AND_PROCESS_REGEX.sub('', line)
+        # Try the HTTP log type first.
         matches = HAPROXY_LINE_REGEX.match(line)
-        if matches is None:
-            return False
+        if matches is not None:
+            # this returns success, just bubble it up.
+            return self._set_internal_vals(matches)
+        matches = httpclfline.HAPROXY_HTTPCLF_LINE_REGEX.match(line)
+        if matches is not None:
+            # try CLF now.
+            return self._set_internal_vals(matches)
+        # neither match, fall through parsing.
+        return False
+
+    def _set_internal_vals(self, matches):
+        """Bit to set internal values from previous matches."""
 
         self.client_ip = matches.group('client_ip')
         self.client_port = int(matches.group('client_port'))
@@ -207,7 +221,7 @@ class Line(object):
         self.time_wait_queues = int(matches.group('tw'))
         self.time_connect_server = int(matches.group('tc'))
         self.time_wait_response = int(matches.group('tr'))
-        self.total_time = matches.group('tt')
+        self.total_time = int(matches.group('tt'))
 
         self.status_code = matches.group('status_code')
         self.bytes_read = matches.group('bytes_read')
